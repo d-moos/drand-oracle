@@ -1,4 +1,4 @@
-module drand::beacon {
+module drand::chain {
     use sui::object::UID;
     use sui::table::Table;
     use sui::table;
@@ -9,6 +9,7 @@ module drand::beacon {
     use std::bcs;
     use sui::bls12381::bls12381_min_pk_verify;
     use std::vector;
+    use sui::tx_context;
 
     const EInvalidSignature: u64 = 1;
 
@@ -23,6 +24,7 @@ module drand::beacon {
         public_key: vector<u8>,
         beacons: Table<u64, Beacon>,
         genesis_time: u64,
+        latest_round: u64,
         period: u8
     }
 
@@ -30,29 +32,53 @@ module drand::beacon {
         public_key: vector<u8>,
         genesis_time: u64,
         period: u8,
+        initial_round: u64,
+        initial_signature: vector<u8>,
         ctx: &mut TxContext
     ) {
-        transfer::share_object(Chain {
+        let chain = Chain {
             id: object::new(ctx),
             beacons: table::new(ctx),
             public_key,
             genesis_time,
+            latest_round: initial_round,
             period
-        });
+        };
+
+        let initial_beacon = Beacon {
+            signature: initial_signature,
+            previous_signature: vector::empty(),
+            round: initial_round
+        };
+
+        table::add(&mut chain.beacons, initial_round, initial_beacon);
+
+        transfer::share_object(chain);
     }
 
-    public entry fun add(chain: &mut Chain, round: u64, signature: vector<u8>) {
-        let previous_beacon = table::borrow(&chain.beacons, round - 1);
+    public entry fun add(chain: &mut Chain, signature: vector<u8>) {
+        let previous_beacon = table::borrow(&chain.beacons, chain.latest_round);
 
-        verify(round, signature, previous_beacon, chain.public_key);
+        verify(chain.latest_round + 1, signature, previous_beacon, chain.public_key);
 
-        table::add(&mut chain.beacons, round, Beacon {
-            round, signature, previous_signature: previous_beacon.signature
+        table::add(&mut chain.beacons, chain.latest_round + 1, Beacon {
+            round: chain.latest_round + 1, signature, previous_signature: previous_beacon.signature
         });
+
+        chain.latest_round = chain.latest_round + 1;
+    }
+
+    public fun current_round(chain: &Chain, ctx: &TxContext): u64 {
+        // timestamp - genesis - (latest_round / period)
+        0
     }
 
     public fun get(chain: &Chain, round: u64): &Beacon {
         table::borrow(&chain.beacons, round)
+    }
+
+    public fun latest(chain: &Chain): &Beacon {
+        table::borrow(&chain.beacons, chain.latest_round)
     }
 
     fun verify(round: u64, signature: vector<u8>, previous_beacon: &Beacon, pubkey: vector<u8>) {
