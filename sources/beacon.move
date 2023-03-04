@@ -9,9 +9,9 @@ module drand::chain {
     use std::bcs;
     use sui::bls12381::bls12381_min_pk_verify;
     use std::vector;
-    use sui::tx_context;
 
     const EInvalidSignature: u64 = 1;
+    const EInvalidRound: u64 = 0;
 
     struct Beacon has store, drop {
         round: u64,
@@ -83,7 +83,7 @@ module drand::chain {
 
     fun verify(round: u64, signature: vector<u8>, previous_beacon: &Beacon, pubkey: vector<u8>) {
         // this is kinda given by the callee, yet we just re-check to be 100% sure
-        assert!(round - 1 == previous_beacon.round, 0);
+        assert!(round - 1 == previous_beacon.round, EInvalidRound);
 
         let message = create_message(&previous_beacon.signature, round);
 
